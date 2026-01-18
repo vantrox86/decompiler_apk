@@ -8,8 +8,8 @@ de compatibilidade universal.
 **Desenvolvedor:** Romildo (thuf)
 
 ------------------------------------------------------------------------
-![Uploading image.png…]()
 
+<img width="1171" height="514" alt="Captura de tela de 2026-01-18 12-17-02" src="https://github.com/user-attachments/assets/a214a618-288d-4ce4-ba7a-e493f6cda3d0" />
 
 ## 1. Visão Geral
 
